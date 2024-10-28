@@ -3,7 +3,7 @@ SERVER  		= ./cmd/${APP}
 RELEASE_SERVER 	= release/${APP}/${APP}
 
 IMAGE = amuluze/amprobe
-TAG = v1.3.8
+TAG = v1.3.9
 
 GO 				= go
 CONFIG_FILE := $(shell pwd)/configs/config.toml
@@ -21,7 +21,7 @@ wire:
 .PHONY: bin
 # build bin
 bin: wire
-	$(GO) build -o $(APP) $(SERVER)
+	$(GO) build -ldflags "-s -w" -o $(APP) $(SERVER)
 
 
 .PHONY: amd64

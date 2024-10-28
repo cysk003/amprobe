@@ -21,25 +21,54 @@ import (
 
 var PrepareSet = wire.NewSet(wire.Struct(new(Prepare), "*"))
 
-var user = model.User{
-	ID:       uuid.MustUUID(),
-	Username: "admin",
-	Password: hash.SHA1String("admin123"), // hash.SHA1String(args.OldPassword)
-	Remark:   "",
-	IsAdmin:  1,
-	Status:   1,
-}
-
-var roles = []model.Role{
+var thresholds = []model.AlarmThreshold{
 	{
-		ID:     uuid.MustUUID(),
-		Name:   "管理员",
-		Status: 1,
+		Type:      "cpu",
+		Duration:  2,
+		Threshold: 80,
 	},
 	{
-		ID:     uuid.MustUUID(),
-		Name:   "普通用户",
-		Status: 1,
+		Type:      "memory",
+		Duration:  2,
+		Threshold: 80,
+	},
+	{
+		Type:      "disk",
+		Duration:  2,
+		Threshold: 85,
+	},
+}
+
+var users = []*model.User{
+	{
+		ID:       uuid.MustUUID(),
+		Username: "admin",
+		Password: hash.SHA1String("admin123"), // hash.SHA1String(args.OldPassword)
+		Remark:   "",
+		IsAdmin:  1,
+		Status:   1,
+		Roles: []*model.Role{
+			{
+				ID:     uuid.MustUUID(),
+				Name:   "管理员",
+				Status: 1,
+			},
+		},
+	},
+	{
+		ID:       uuid.MustUUID(),
+		Username: "amprobe",
+		Password: hash.SHA1String("123456"),
+		Remark:   "",
+		IsAdmin:  1,
+		Status:   1,
+		Roles: []*model.Role{
+			{
+				ID:     uuid.MustUUID(),
+				Name:   "普通用户",
+				Status: 1,
+			},
+		},
 	},
 }
 
@@ -62,6 +91,9 @@ type GroupPolicy struct {
 func (a *Prepare) Init(app *fiber.App) {
 	// init account
 	a.InitAccount(app)
+
+	// init alarm threshold
+	a.InitAlarmThreshold()
 
 	// init casbin rules
 	a.InitCasbinRules()
@@ -95,27 +127,33 @@ func (a *Prepare) InitAccount(app *fiber.App) {
 	}
 
 	_ = a.db.RunInTransaction(func(tx *gorm.DB) error {
-		var uRoles model.Roles
-		for _, r := range roles {
-			if r.Name == "管理员" {
-				r.Resources = postResources
-				uRoles = append(uRoles, &r)
+		for _, u := range users {
+			if u.Username == "admin" {
+				u.Roles[0].Resources = postResources
 			} else {
-				r.Resources = getResources
+				u.Roles[0].Resources = getResources
 			}
-		}
-		if err := a.db.Create(&roles).Error; err != nil {
-			slog.Error("create roles error", "error", err)
-			return err
-		}
 
-		user.Roles = uRoles
-		if err := a.db.Create(&user).Error; err != nil {
-			slog.Error("create user failed", "error", err)
-			return err
+			var ou model.User
+			// 不存在则创建
+			if err := a.db.Model(&model.User{}).Where("username = ?", u.Username).Take(&ou).Error; err != nil {
+				a.db.Create(u)
+			} else {
+				// 存在则更新
+				a.db.Model(&model.User{}).Where("username = ?", u.Username).Updates(model.User{Password: u.Password, Status: u.Status, IsAdmin: u.IsAdmin, Roles: u.Roles, Remark: u.Remark})
+			}
 		}
 		return nil
 	})
+}
+
+func (a *Prepare) InitAlarmThreshold() {
+	var u model.AlarmThreshold
+	if err := a.db.Model(&model.AlarmThreshold{}).Where("type = ?", "cpu").First(&u).Error; err == nil {
+		slog.Error("alarm threshold exist", "error", err)
+		return
+	}
+	a.db.Model(&model.AlarmThreshold{}).Create(&thresholds)
 }
 
 func (a *Prepare) InitCasbinRules() {
